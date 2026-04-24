@@ -526,6 +526,8 @@ export class N8AONode extends TempNode {
 
   private frame = 0;
 
+  private ignFrame = 0;
+
   private width = 1;
 
   private height = 1;
@@ -743,9 +745,13 @@ export class N8AONode extends TempNode {
       this.clearAccumulationTargets(renderer);
     }
 
-    this.frameNode.value = this.configuration.accumulate
-      ? this.frame % 64
-      : 0;
+    if (this.configuration.accumulate) {
+      this.ignFrame = (this.ignFrame + 1) & 63;
+      this.frameNode.value = this.ignFrame;
+    } else {
+      this.ignFrame = 0;
+      this.frameNode.value = 0;
+    }
 
     this.syncConfigurationUniforms();
 
