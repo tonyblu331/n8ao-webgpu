@@ -100,7 +100,11 @@ These numbers should be read as a small runtime improvement, not as an AO rewrit
 
 ## Visual comparison
 
-Side-by-side screenshots are attached below for review. They are for this PR thread only and are not included in the diff.
+Side-by-side AO screenshots are attached below for review. They are for this PR thread only and are not included in the diff.
+
+| Helmet AO | Interior AO |
+|-----------|-------------|
+| `![helmet-sidebyside-ao](PASTE_URL_AFTER_DRAG)` | `![interior-sidebyside-ao](PASTE_URL_AFTER_DRAG)` |
 
 The expected result is intentionally conservative:
 
