@@ -63,7 +63,6 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import bluenoiseBits from "./BlueNoise.js";
 import {
   applyQualityMode,
   createDefaultN8AOConfiguration,
@@ -146,6 +145,60 @@ const getNormalFromDepthWithResolution = /* @__PURE__ */ Fn(
       );
 
     return normalize(cross(dpdx, dpdy));
+  },
+);
+
+const TAU = Math.PI * 2;
+const GOLDEN_RATIO = 1.618033988749895;
+const PLASTIC_NUMBER = 1.324717957244746;
+
+/**
+ * Interleaved Gradient Noise (IGN) by Jorge Jimenez.
+ * Optimized form with shared base computation and precomputed
+ * offset dot products to minimize ALU ops.
+ */
+const ignDotScale = vec2(0.06711056, 0.00583715);
+
+// dot(vec2(47, 17), ignDotScale) — IGN2 y‑channel decorrelation
+const ignD2Y = 3.25342787;
+
+// dot(vec2(17, 59), ignDotScale) — IGN4 .g channel
+const ignD4G = 1.48527137;
+
+// dot(vec2(47, 13), ignDotScale) — IGN4 .b channel
+const ignD4B = 3.23007927;
+
+// dot(vec2(109, 83), ignDotScale) — IGN4 .a channel
+const ignD4A = 7.79933269;
+
+const interleavedGradientNoise2 = /* @__PURE__ */ Fn(
+  ([screenPosition, frame]: any[]) => {
+    const d = dot(screenPosition, ignDotScale).fract();
+
+    const x = float(52.9829189)
+      .mul(d)
+      .add(frame.mul(GOLDEN_RATIO))
+      .fract();
+
+    const y = float(52.9829189)
+      .mul(float(ignD2Y).add(d).fract())
+      .add(frame.mul(PLASTIC_NUMBER))
+      .fract();
+
+    return vec2(x, y);
+  },
+);
+
+const interleavedGradientNoise4 = /* @__PURE__ */ Fn(
+  ([screenPosition]: any[]) => {
+    const d = dot(screenPosition, ignDotScale).fract();
+
+    return vec4(
+      float(52.9829189).mul(d).fract(),
+      float(52.9829189).mul(float(ignD4G).add(d).fract()).fract(),
+      float(52.9829189).mul(float(ignD4B).add(d).fract()).fract(),
+      float(52.9829189).mul(float(ignD4A).add(d).fract()).fract(),
+    );
   },
 );
 
@@ -284,8 +337,6 @@ export class N8AONode extends TempNode {
 
   private readonly quadMesh = new QuadMesh();
 
-  private readonly blueNoiseTexture = new DataTexture(bluenoiseBits, 128, 128);
-
   private readonly outputTarget = new RenderTarget(1, 1, {
     depthBuffer: false,
     format: RGBAFormat,
@@ -416,10 +467,6 @@ export class N8AONode extends TempNode {
 
   private readonly halfResNode = uniform(false);
 
-  private readonly blueNoiseNode = texture(
-    this.blueNoiseTexture,
-  ) as TextureNodeLike;
-
   private readonly aoSourceTextureNode = texture(
     this.aoTargetA.texture,
   ) as TextureNodeLike;
@@ -505,12 +552,6 @@ export class N8AONode extends TempNode {
     this.scenePassNode = input.scenePassNode ?? null;
     this.scene = input.scene;
 
-    this.blueNoiseTexture.colorSpace = NoColorSpace;
-    this.blueNoiseTexture.wrapS = RepeatWrapping;
-    this.blueNoiseTexture.wrapT = RepeatWrapping;
-    this.blueNoiseTexture.minFilter = NearestFilter;
-    this.blueNoiseTexture.magFilter = NearestFilter;
-    this.blueNoiseTexture.needsUpdate = true;
     this.depthCopySourceTextureNode = texture(
       this.depthTexture,
     ) as TextureNodeLike;
@@ -599,7 +640,6 @@ export class N8AONode extends TempNode {
     this.depthDownsampleTarget?.dispose();
     this.transparencyTargetDepthWriteFalse?.dispose();
     this.transparencyTargetDepthWriteTrue?.dispose();
-    this.blueNoiseTexture.dispose();
     this.placeholderDepthTexture.dispose();
     this.placeholderNormalTexture.dispose();
     this.placeholderTransparentTexture.dispose();
@@ -1055,7 +1095,6 @@ export class N8AONode extends TempNode {
     const biasAdjustment = this.biasAdjustmentNode;
     const aoDepthNode = this.getAoDepthNode();
     const aoDepthTexture = this.getAoDepthTexture();
-    const blueNoiseNode = this.blueNoiseNode;
     const downsampledNormalTextureNode = this.downsampledNormalTextureNode;
     const orthoNode = this.orthoNode;
     const screenSpaceRadiusNode = this.screenSpaceRadiusNode;
@@ -1086,19 +1125,12 @@ export class N8AONode extends TempNode {
               resolution,
             ).toVar();
 
-        const noiseUv = vec2(uvNode.x, uvNode.y.oneMinus())
+        const screenPosition = vec2(uvNode.x, uvNode.y.oneMinus())
           .mul(resolution)
-          .div(128)
           .toVar();
-        const noise = blueNoiseNode.sample(noiseUv).toVar();
-        const noiseX = noise.x
-          .add(frame.mul(1.618033988749895))
-          .fract()
-          .toVar();
-        const noiseY = noise.y
-          .add(frame.mul(1.324717957244746))
-          .fract()
-          .toVar();
+        const noise = interleavedGradientNoise2(screenPosition, frame).toVar();
+        const noiseX = noise.x.toVar();
+        const noiseY = noise.y.toVar();
 
         const helper = vec3(0, 1, 0).toVar();
         If(dot(helper, normal).greaterThan(0.99), () => {
@@ -1107,7 +1139,7 @@ export class N8AONode extends TempNode {
 
         const tangent = helper.cross(normal).normalize().toVar();
         const bitangent = normal.cross(tangent).toVar();
-        const rotationAngle = noiseX.mul(Math.PI * 2).toVar();
+        const rotationAngle = noiseX.mul(TAU).toVar();
         const rotationSin = rotationAngle.sin().toVar();
         const rotationCos = rotationAngle.cos().toVar();
 
@@ -1260,7 +1292,6 @@ export class N8AONode extends TempNode {
     const projectionMatrixInverse = this.projectionMatrixInverseNode;
     const aoDepthNode = this.getAoDepthNode();
     const aoSourceTextureNode = this.aoSourceTextureNode;
-    const blueNoiseNode = this.blueNoiseNode;
     const blurIndexNode = this.blurIndexNode;
     const screenSpaceRadiusNode = this.screenSpaceRadiusNode;
     const blurWorldRadiusNode = this.blurWorldRadiusNode;
@@ -1286,23 +1317,22 @@ export class N8AONode extends TempNode {
           projectionMatrixInverse,
         ).toVar();
         const texelSize = vec2(1).div(resolution).toVar();
-        const blueNoiseUv = vec2(uvNode.x, uvNode.y.oneMinus())
+        const screenPosition = vec2(uvNode.x, uvNode.y.oneMinus())
           .mul(resolution)
-          .div(128)
           .toVar();
-        const noise = blueNoiseNode.sample(blueNoiseUv).toVar();
+        const noise = interleavedGradientNoise4(screenPosition).toVar();
 
         const angle = blurIndexNode
           .equal(0)
           .select(
-            noise.w.mul(Math.PI * 2),
+            noise.w.mul(TAU),
             blurIndexNode
               .equal(1)
               .select(
-                noise.z.mul(Math.PI * 2),
+                noise.z.mul(TAU),
                 blurIndexNode
                   .equal(2)
-                  .select(noise.y.mul(Math.PI * 2), noise.x.mul(Math.PI * 2)),
+                  .select(noise.y.mul(TAU), noise.x.mul(TAU)),
               ),
           )
           .toVar();
