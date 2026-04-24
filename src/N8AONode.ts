@@ -41,7 +41,6 @@ import {
   getViewPosition,
   int,
   ivec2,
-  mat2,
   max,
   min,
   mix,
@@ -1785,7 +1784,7 @@ export class N8AONode extends TempNode {
         ? this.configuration.aoRadius * 0.5
         : this.configuration.aoRadius;
     this.distanceFalloffNode.value = this.configuration.distanceFalloff;
-    this.frameNode.value = this.frame;
+    this.frameNode.value = this.frame % 64;
     this.screenSpaceRadiusNode.value = this.configuration.screenSpaceRadius;
     this.blurRadiusNode.value =
       this.configuration.denoiseRadius * (this.configuration.halfRes ? 0.5 : 1);
