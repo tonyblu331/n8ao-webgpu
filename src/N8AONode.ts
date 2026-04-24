@@ -729,7 +729,6 @@ export class N8AONode extends TempNode {
 
     this.camera.updateMatrixWorld();
     this.detectTransparency();
-    this.syncConfigurationUniforms();
 
     if (
       this.configuration.accumulate &&
@@ -743,6 +742,12 @@ export class N8AONode extends TempNode {
       this.needsFrame = false;
       this.clearAccumulationTargets(renderer);
     }
+
+    this.frameNode.value = this.configuration.accumulate
+      ? this.frame % 64
+      : 0;
+
+    this.syncConfigurationUniforms();
 
     this.lastViewMatrix.copy(this.camera.matrixWorldInverse);
     this.lastProjectionMatrix.copy(this.camera.projectionMatrix);
@@ -1784,7 +1789,6 @@ export class N8AONode extends TempNode {
         ? this.configuration.aoRadius * 0.5
         : this.configuration.aoRadius;
     this.distanceFalloffNode.value = this.configuration.distanceFalloff;
-    this.frameNode.value = this.frame % 64;
     this.screenSpaceRadiusNode.value = this.configuration.screenSpaceRadius;
     this.blurRadiusNode.value =
       this.configuration.denoiseRadius * (this.configuration.halfRes ? 0.5 : 1);
