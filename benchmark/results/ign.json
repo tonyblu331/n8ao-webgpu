@@ -1,0 +1,38 @@
+[
+  {
+    "scene": "helmet",
+    "mode": "ao",
+    "avgMs": "0.0570",
+    "fps": "17543.9"
+  },
+  {
+    "scene": "interior",
+    "mode": "ao",
+    "avgMs": "0.0545",
+    "fps": "18348.6"
+  },
+  {
+    "scene": "helmet",
+    "mode": "noao",
+    "avgMs": "0.0750",
+    "fps": "13333.3"
+  },
+  {
+    "scene": "interior",
+    "mode": "noao",
+    "avgMs": "0.0530",
+    "fps": "18867.9"
+  },
+  {
+    "scene": "helmet",
+    "mode": "full",
+    "avgMs": "0.0820",
+    "fps": "12195.1"
+  },
+  {
+    "scene": "interior",
+    "mode": "full",
+    "avgMs": "0.0715",
+    "fps": "13986.0"
+  }
+]

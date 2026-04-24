@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>N8AO Benchmark</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; }
+    #canvas { display: block; width: 1920px; height: 1080px; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/node_modules/three/build/three.module.js",
+      "three/webgpu": "/node_modules/three/build/three.webgpu.js",
+      "three/tsl": "/node_modules/three/build/three.tsl.js",
+      "three/examples/jsm/loaders/GLTFLoader.js": "/node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+      "three/examples/jsm/loaders/OBJLoader.js": "/node_modules/three/examples/jsm/loaders/OBJLoader.js",
+      "n8ao-webgpu": "/dist/index.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { WebGPURenderer, PostProcessing } from "three/webgpu";
+    import { N8AONode, createN8AOScenePass } from "n8ao-webgpu";
+    import { setupHelmet, setupInterior } from "./scenes.mjs";
+
+    const WARMUP = 10;
+    const MEASURE = 200;
+    const STABLE = 50;
+
+    // Read mode from hash
+    const hash = (location.hash || "#mode=combined").replace("#", "");
+    const params = Object.fromEntries(new URLSearchParams(hash));
+    const modeName = params.mode || "combined";
+
+    const canvas = document.getElementById("canvas");
+    const renderer = new WebGPURenderer({
+      canvas,
+      antialias: false,
+      powerPreference: "high-performance",
+    });
+    await renderer.init();
+    renderer.setSize(1920, 1080);
+    renderer.setPixelRatio(1);
+
+    const SCENES = [
+      { name: "helmet", factory: setupHelmet },
+      { name: "interior", factory: setupInterior },
+    ];
+
+    const results = [];
+
+    for (const { name, factory } of SCENES) {
+      console.log(`[BENCH] Loading: ${name}`);
+      const { scene, camera, update } = await factory();
+
+      const scenePass = createN8AOScenePass(scene, camera);
+      const n8ao = new N8AONode({
+        beautyNode: scenePass.getTextureNode("output"),
+        beautyTexture: scenePass.getTexture("output"),
+        camera,
+        depthNode: scenePass.getTextureNode("depth"),
+        depthTexture: scenePass.getTexture("depth"),
+        normalNode: scenePass.getTextureNode("normal"),
+        normalTexture: scenePass.getTexture("normal"),
+        scene,
+        scenePassNode: scenePass,
+      });
+
+      // Quality + display mode
+      n8ao.setQualityMode("Ultra");
+      n8ao.configuration.aoRadius = 5.0;
+      n8ao.configuration.intensity = 25;
+      n8ao.configuration.denoiseRadius = 6;
+      n8ao.configuration.distanceFalloff = 0.3;
+      n8ao.configuration.halfRes = false;
+      n8ao.configuration.screenSpaceRadius = false;
+
+      // Set display mode from hash
+      if (modeName === "ao") n8ao.setDisplayMode("AO");
+      else if (modeName === "noao") n8ao.setDisplayMode("No AO");
+      else if (modeName === "full") n8ao.setDisplayMode("Combined");
+      else n8ao.setDisplayMode("AO");
+
+      const pp = new PostProcessing(renderer);
+      pp.outputNode = n8ao;
+
+      // Render to stabilize
+      for (let f = 0; f < STABLE + WARMUP; f++) {
+        if (update) update();
+        pp.render();
+      }
+
+      // Signal Playwright
+      window._readyForScreenshot = name;
+      console.log(`[BENCH] Screenshot ready: ${name} (${modeName})`);
+      await new Promise(r => { window._screenshotDone = r; });
+
+      // Measure timing
+      const times = [];
+      for (let f = 0; f < WARMUP + MEASURE; f++) {
+        if (update) update();
+        const t0 = performance.now();
+        pp.render();
+        const t1 = performance.now();
+        if (f >= WARMUP) times.push(t1 - t0);
+      }
+
+      const avg = arr => arr.reduce((s, v) => s + v, 0) / arr.length;
+      const result = {
+        scene: name,
+        mode: modeName,
+        avgMs: avg(times).toFixed(4),
+        fps: (1000 / avg(times)).toFixed(1),
+      };
+      results.push(result);
+      console.log(`RESULT:${JSON.stringify(result)}`);
+
+      scene.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
+          else o.material.dispose();
+        }
+      });
+    }
+
+    console.log(`BENCHMARK_RESULTS:${JSON.stringify(results)}`);
+    window._done = true;
+  </script>
+</body>
+</html>
